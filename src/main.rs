@@ -219,31 +219,7 @@ impl SymbolTable {
     }
 }
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    // dbg!(&args);
-
-    // test hashmap
-    let mut symbols = SymbolTable::new();
-    dbg!(symbols.contains("KBD"));
-    dbg!(symbols.getAddress("KBD"));
-
-    let filename = parse_filename(&args).unwrap_or_else(|err| {
-        println!("{}", err);
-        std::process::exit(1);
-    });
-    println!("Assembling file: {}", filename);
-
-    let lines = read_lines(filename);
-
-    //
-    let mut parser = Parser {
-        contents: lines,
-        currentLine: 0,
-        currentInstruction: "".to_string(),
-    };
-    let code = Code {};
-
+fn assemble_hack_code(mut parser: Parser, mut symbols: SymbolTable, code: Code) -> Vec<String> {
     // symbols table first pass
 
     let mut line_counter = 0;
@@ -280,10 +256,7 @@ fn main() {
             _ => {}
         }
     }
-    dbg!(symbols.contains("j"));
-    dbg!(symbols.getAddress("j"));
 
-    println!("{:?}", symbols.symbols);
     fn handle_address_instruction(symbol: &String, symbol_table: &SymbolTable) -> Option<String> {
         if !symbol_table.contains(&symbol) {
             return None;
@@ -291,6 +264,7 @@ fn main() {
             return Some(format! {"{:016b}", symbol_table.getAddress(&symbol)});
         }
     }
+
     parser.currentLine = 0;
     let mut compiled_code: Vec<String> = Vec::new();
     while parser.hasMoreLines() {
@@ -320,9 +294,32 @@ fn main() {
         }
     }
     println!("{:?}", compiled_code);
+    compiled_code
+}
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    let filename = parse_filename(&args).unwrap_or_else(|err| {
+        println!("{}", err);
+        std::process::exit(1);
+    });
+
+    println!("Assembling file: {}", filename);
+
+    let lines = read_lines(filename);
+
+    let parser = Parser {
+        contents: lines,
+        currentLine: 0,
+        currentInstruction: "".to_string(),
+    };
+    let code = Code {};
+    let symbols = SymbolTable::new();
+
+    let assembly_code = assemble_hack_code(parser, symbols, code);
 
     // write to file
     let mut f = File::create("test.hack").expect("failed...");
-    f.write(compiled_code.join("\n").as_bytes())
+    f.write(assembly_code.join("\n").as_bytes())
         .expect("failed...");
 }
