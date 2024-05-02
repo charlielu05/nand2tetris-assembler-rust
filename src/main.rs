@@ -1,13 +1,8 @@
 use regex::Regex;
-use serde::Serialize;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env;
 use std::fs::{read_to_string, File};
-use std::io::{self, Write};
-use std::io::{BufRead, BufReader};
-use std::path::Path;
-use std::rc::Rc;
+use std::io::Write;
 
 fn parse_filename(configs: &[String]) -> Result<&String, &'static str> {
     if configs.len() == 0 {
@@ -51,22 +46,23 @@ impl Parser {
         }
     }
 
-    fn instructionType(&self) -> String {
+    fn instructionType(&self) -> Option<&str> {
         match self.contents[self.currentLine].as_str() {
-            line if line.starts_with('@') => "A_INSTRUCTION".to_string(),
-            line if line.starts_with('(') && line.ends_with(')') => "L_INSTRUCTION".to_string(),
-            _ => "C_INSTRUCTION".to_string(),
+            line if line.starts_with('@') => Some("A_INSTRUCTION"),
+            line if line.starts_with('(') && line.ends_with(')') => Some("L_INSTRUCTION"),
+            line if !line.is_empty() => Some("C_INSTRUCTION"),
+            _ => None,
         }
     }
 
-    fn symbol(&self) -> String {
-        match self.instructionType().as_str() {
-            "A_INSTRUCTION" => self.currentInstruction[1..].to_string(),
-            "L_INSTRUCTION" => {
-                self.currentInstruction[1..self.currentInstruction.len() - 1].to_string()
+    fn symbol(&self) -> Option<String> {
+        match self.instructionType() {
+            Some("A_INSTRUCTION") => Some(self.currentInstruction[1..].to_string()),
+            Some("L_INSTRUCTION") => {
+                Some(self.currentInstruction[1..self.currentInstruction.len() - 1].to_string())
             }
-            "C_INSTRUCTION" => "".to_string(),
-            _ => "".to_string(),
+            Some("C_INSTRUCTION") => None,
+            _ => None,
         }
     }
 
@@ -166,8 +162,8 @@ impl Code {
 }
 
 struct SymbolTable {
-    symbols: HashMap<String, u32>,
-    mem_counter: u32, // starts at 16
+    symbols: HashMap<String, usize>,
+    mem_counter: usize, // starts at 16
 }
 
 impl SymbolTable {
@@ -202,7 +198,7 @@ impl SymbolTable {
         }
     }
 
-    fn addEntry(&mut self, key: &str, val: &u32) {
+    fn addEntry(&mut self, key: &str, val: &usize) {
         self.symbols.insert(key.to_string(), val.clone());
         self.mem_counter += 1;
     }
@@ -211,57 +207,43 @@ impl SymbolTable {
         self.symbols.contains_key(key)
     }
 
-    fn getAddress(&self, key: &str) -> &u32 {
+    fn getAddress(&self, key: &str) -> Option<&usize> {
         match self.symbols.get(key) {
-            Some(value) => return value,
-            None => return &1,
+            Some(value) => return Some(value),
+            None => None,
         }
     }
 }
 
 fn assemble_hack_code(mut parser: Parser, mut symbols: SymbolTable, code: Code) -> Vec<String> {
     // symbols table first pass
+    // builds the labels keys
+    // increment line_counter for A and C instructions only
 
-    let mut line_counter = 0;
+    let mut label_counter = 0;
 
     while parser.hasMoreLines() {
         parser.advance();
-        match parser.instructionType().as_str() {
-            "A_INSTRUCTION" => {}
-            "C_INSTRUCTION" => {}
-            "L_INSTRUCTION" => {
-                symbols.addEntry(&parser.symbol(), &(line_counter));
+        dbg!("{:?}", &parser.currentInstruction);
+        dbg!("{:?}", &parser.instructionType());
+        match parser.instructionType() {
+            Some("A_INSTRUCTION") => {
+                label_counter += 1;
             }
-            _ => {}
-        }
-        line_counter += 1;
-    }
-    dbg!(symbols.contains("LOOP"));
-    dbg!(symbols.getAddress("LOOP"));
-    // symbols table second pass
-    parser.currentLine = 0;
-    symbols.mem_counter = 16;
-    println!("{:?}", &mut symbols.symbols);
-
-    fn handle_second_pass(symbol: &String, symbol_table: &mut SymbolTable) {
-        if !symbol_table.contains(symbol) {
-            symbol_table.addEntry(symbol, &symbol_table.mem_counter.clone());
-        }
-    }
-
-    while parser.hasMoreLines() {
-        parser.advance();
-        match parser.instructionType().as_str() {
-            "A_INSTRUCTION" => handle_second_pass(&parser.symbol(), &mut symbols),
+            Some("C_INSTRUCTION") => {
+                label_counter += 1;
+            }
+            Some("L_INSTRUCTION") => {
+                symbols.addEntry(&parser.symbol().expect("L instruction"), &label_counter);
+            }
             _ => {}
         }
     }
 
     fn handle_address_instruction(symbol: &String, symbol_table: &SymbolTable) -> Option<String> {
-        if !symbol_table.contains(&symbol) {
-            return None;
-        } else {
-            return Some(format! {"{:016b}", symbol_table.getAddress(&symbol)});
+        match symbol_table.getAddress(&symbol) {
+            Some(value) => return Some(format! {"{:016b}", value}),
+            None => return Some(format! {"{:016b}", &symbol.parse::<u32>().unwrap()}),
         }
     }
 
@@ -269,27 +251,22 @@ fn assemble_hack_code(mut parser: Parser, mut symbols: SymbolTable, code: Code) 
     let mut compiled_code: Vec<String> = Vec::new();
     while parser.hasMoreLines() {
         parser.advance();
-        println!("{:?}", &parser.currentLine);
-        match parser.instructionType().as_str() {
-            "A_INSTRUCTION" => compiled_code.push(
-                handle_address_instruction(&parser.symbol(), &symbols)
-                    .expect("could not find symbol..."),
-            ),
-            "C_INSTRUCTION" => {
+
+        match parser.instructionType() {
+            Some("A_INSTRUCTION") => {
+                let a_code = handle_address_instruction(&parser.symbol().expect("error"), &symbols)
+                    .expect("could not find symbol...");
+                compiled_code.push(a_code);
+            }
+            Some("C_INSTRUCTION") => {
                 compiled_code.push(format!(
                     "111{}{}{}",
                     code.comp(&parser.comp()),
                     code.dest(&parser.dest()),
                     code.jump(&parser.jump())
                 ));
-                dbg!(&parser.comp());
-                dbg!(code.comp(&parser.comp()));
-                dbg!(&parser.dest());
-                dbg!(code.dest(&parser.dest()));
-                dbg!(&parser.jump());
-                dbg!(code.jump(&parser.jump()));
             }
-            "L_INSTRUCTION" => {}
+            Some("L_INSTRUCTION") => {}
             _ => {}
         }
     }
