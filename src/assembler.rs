@@ -33,7 +33,7 @@ impl Parser {
         };
     }
 
-    fn hasMoreLines(&self) -> bool {
+    pub fn hasMoreLines(&self) -> bool {
         if self.currentLine < self.contents.len() - 1 {
             return true;
         } else {
@@ -41,7 +41,7 @@ impl Parser {
         }
     }
 
-    fn advance(&mut self) {
+    pub fn advance(&mut self) {
         if self.hasMoreLines() {
             self.currentLine += 1;
             if self.contents[self.currentLine].starts_with("//") {
@@ -52,7 +52,7 @@ impl Parser {
         }
     }
 
-    fn instructionType(&self) -> Option<&str> {
+    pub fn instructionType(&self) -> Option<&str> {
         match self.contents[self.currentLine].as_str() {
             line if line.starts_with('@') => Some("A_INSTRUCTION"),
             line if line.starts_with('(') && line.ends_with(')') => Some("L_INSTRUCTION"),
@@ -61,7 +61,7 @@ impl Parser {
         }
     }
 
-    fn symbol(&self) -> Option<String> {
+    pub fn symbol(&self) -> Option<String> {
         match self.instructionType() {
             Some("A_INSTRUCTION") => Some(self.currentInstruction[1..].to_string()),
             Some("L_INSTRUCTION") => {
